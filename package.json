@@ -1,0 +1,37 @@
+{
+  "name": "ai-coder",
+  "version": "1.0.0",
+  "description": "Automated AI coding API that receives task descriptions via webhook, uses Claude AI to understand tasks, search GitHub repos, write code, and create PRs automatically",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:worker": "node dist/jobs/worker.js",
+    "dev": "tsx watch src/index.ts",
+    "dev:worker": "tsx watch src/jobs/worker.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "@fastify/cors": "^10.0.0",
+    "@octokit/auth-app": "^7.1.0",
+    "@octokit/core": "^6.1.0",
+    "@octokit/rest": "^21.0.0",
+    "bullmq": "^5.30.0",
+    "fastify": "^5.2.0",
+    "ioredis": "^5.4.0",
+    "nanoid": "^5.0.0",
+    "pino": "^9.5.0",
+    "simple-git": "^3.27.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
