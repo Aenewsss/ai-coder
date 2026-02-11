@@ -4,6 +4,7 @@ import { sendCallback } from './callback.js';
 import { createWorkspace, cleanupJobWorkspaces } from '../sandbox/workspace.js';
 import { runAgentLoop } from '../agent/loop.js';
 import { createJobLogger } from '../utils/logger.js';
+import { env } from '../config/env.js';
 
 export async function processJob(job: Job<JobData, JobResult>): Promise<JobResult> {
   const log = createJobLogger(job.id!);
@@ -22,7 +23,7 @@ export async function processJob(job: Job<JobData, JobResult>): Promise<JobResul
 
   try {
     // Update progress
-    await job.updateProgress(10);
+    await job.updateProgress({ percentage: 10 });
 
     // Create workspace
     const workspace = await createWorkspace({
@@ -33,13 +34,16 @@ export async function processJob(job: Job<JobData, JobResult>): Promise<JobResul
       jobId: job.id!,
     });
 
-    await job.updateProgress(20);
+    await job.updateProgress({ percentage: 20, turn: 0, maxTurns: env.MAX_AGENT_TURNS });
 
     try {
       // Run agent loop
-      const agentResult = await runAgentLoop(workspace, task.description, job.id!);
+      const agentResult = await runAgentLoop(workspace, task.description, job.id!, (turn, maxTurns) => {
+        const percentage = 20 + Math.floor((turn / maxTurns) * 70);
+        job.updateProgress({ percentage, turn, maxTurns });
+      });
 
-      await job.updateProgress(90);
+      await job.updateProgress({ percentage: 90 });
 
       result = {
         success: agentResult.success,
@@ -62,7 +66,7 @@ export async function processJob(job: Job<JobData, JobResult>): Promise<JobResul
     };
   }
 
-  await job.updateProgress(100);
+  await job.updateProgress({ percentage: 100 });
 
   // Send callback if configured
   if (callback?.url) {

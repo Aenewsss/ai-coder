@@ -7,7 +7,7 @@ const envSchema = z.object({
 
   // Anthropic
   ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
-  CLAUDE_MODEL: z.string().default('claude-sonnet-4-20250514'),
+  CLAUDE_MODEL: z.string().min(1, 'CLAUDE_MODEL is required'),
 
   // GitHub App
   GITHUB_APP_ID: z.coerce.number().min(1, 'GITHUB_APP_ID is required'),
@@ -20,7 +20,7 @@ const envSchema = z.object({
   WORKSPACE_BASE_PATH: z.string().default('/tmp/ai-coder-workspaces'),
 
   // Agent
-  MAX_AGENT_TURNS: z.coerce.number().default(50),
+  MAX_AGENT_TURNS: z.coerce.number().default(100),
 });
 
 export type Env = z.infer<typeof envSchema>;

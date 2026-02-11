@@ -76,10 +76,16 @@ export async function addJob(data: JobData): Promise<string> {
   return job.id!;
 }
 
+export interface JobProgress {
+  percentage: number;
+  turn?: number;
+  maxTurns?: number;
+}
+
 export async function getJobStatus(jobId: string): Promise<{
   status: 'queued' | 'active' | 'completed' | 'failed' | 'unknown';
   result?: JobResult;
-  progress?: number;
+  progress?: JobProgress;
 }> {
   const job = await jobQueue.getJob(jobId);
 
@@ -95,7 +101,7 @@ export async function getJobStatus(jobId: string): Promise<{
     case 'waiting-children':
       return { status: 'queued' };
     case 'active':
-      return { status: 'active', progress: job.progress as number };
+      return { status: 'active', progress: job.progress as JobProgress };
     case 'completed':
       return { status: 'completed', result: job.returnvalue };
     case 'failed':
