@@ -1,0 +1,14 @@
+{
+  "task": {
+    "description": "",
+    "priority": "invalid"
+  },
+  "organization": {
+    "id": "",
+    "name": "Test"
+  },
+  "repository": {
+    "owner": "test",
+    "name": ""
+  }
+}

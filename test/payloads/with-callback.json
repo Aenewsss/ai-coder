@@ -1,0 +1,19 @@
+{
+  "task": {
+    "description": "Add unit tests for the user service module",
+    "priority": "normal"
+  },
+  "organization": {
+    "id": "org_789",
+    "name": "QA Organization",
+    "installationId": 11223344
+  },
+  "repository": {
+    "owner": "qa-team",
+    "name": "backend-service",
+    "defaultBranch": "develop"
+  },
+  "callback": {
+    "url": "http://localhost:3001/callback"
+  }
+}

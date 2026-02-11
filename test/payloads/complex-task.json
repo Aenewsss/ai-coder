@@ -1,0 +1,19 @@
+{
+  "task": {
+    "description": "Implement a new REST API endpoint for user profile management with CRUD operations. Include input validation, error handling, and integrate with the existing authentication middleware. Add comprehensive tests.",
+    "priority": "normal"
+  },
+  "organization": {
+    "id": "org_complex",
+    "name": "Development Team",
+    "installationId": 99887766
+  },
+  "repository": {
+    "owner": "dev-team",
+    "name": "api-gateway",
+    "defaultBranch": "main"
+  },
+  "callback": {
+    "url": "https://webhook.site/your-unique-url"
+  }
+}

@@ -10,7 +10,17 @@
     "start:worker": "node dist/jobs/worker.js",
     "dev": "tsx watch src/index.ts",
     "dev:worker": "tsx watch src/jobs/worker.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:e2e": "vitest run",
+    "test:e2e:watch": "vitest watch",
+    "test:e2e:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:webhook": "test/scripts/send-webhook.sh",
+    "test:monitor": "tsx test/scripts/monitor-job.ts",
+    "test:list": "tsx test/scripts/list-jobs.ts",
+    "test:cleanup": "tsx test/scripts/cleanup-jobs.ts",
+    "test:callback": "tsx test/scripts/callback-server.ts"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -31,8 +41,14 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/supertest": "^6.0.3",
+    "@vitest/ui": "^4.0.18",
+    "ioredis-mock": "^8.13.1",
     "pino-pretty": "^13.1.3",
+    "supertest": "^7.2.2",
+    "testcontainers": "^11.11.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
   }
 }

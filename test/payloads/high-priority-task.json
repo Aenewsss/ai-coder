@@ -1,0 +1,19 @@
+{
+  "task": {
+    "description": "Fix critical bug in authentication module that prevents users from logging in",
+    "priority": "high"
+  },
+  "organization": {
+    "id": "org_456",
+    "name": "Production Organization",
+    "installationId": 87654321
+  },
+  "repository": {
+    "owner": "production-owner",
+    "name": "production-app",
+    "defaultBranch": "main"
+  },
+  "callback": {
+    "url": "https://webhook.site/your-unique-url"
+  }
+}

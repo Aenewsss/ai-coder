@@ -1,0 +1,16 @@
+{
+  "task": {
+    "description": "Update documentation to reflect recent API changes",
+    "priority": "low"
+  },
+  "organization": {
+    "id": "org_docs",
+    "name": "Documentation Team",
+    "installationId": 55443322
+  },
+  "repository": {
+    "owner": "docs-team",
+    "name": "api-docs",
+    "defaultBranch": "main"
+  }
+}
