@@ -43,7 +43,7 @@ describe('E2E: Callback Integration', () => {
     await app.ready();
 
     // Setup supertest
-    request = supertest(app.server);
+    request = supertest(app.server) as any;
 
     // Mock the agent and workspace functions
     vi.mock('../../src/sandbox/workspace.js', () => ({
@@ -97,7 +97,23 @@ describe('E2E: Callback Integration', () => {
 
   afterEach(async () => {
     callbackServer.clearCallbacks();
-    await cleanupTestJobs();
+    // Wait for all tracked jobs to complete before moving to next test
+    for (const jobId of createdJobIds) {
+      try {
+        await waitForJobCompletion(queue, jobId, 10000);
+      } catch {
+        // Job may already be completed or removed
+      }
+    }
+    for (const jobId of createdJobIds) {
+      try {
+        const job = await queue.getJob(jobId);
+        if (job) await job.remove();
+      } catch {
+        // Job may already be removed
+      }
+    }
+    createdJobIds.clear();
   });
 
   it('should send callback when job completes successfully', async () => {

@@ -38,7 +38,7 @@ describe('E2E: Webhook to Worker Flow', () => {
     await app.ready();
 
     // Setup supertest
-    request = supertest(app.server);
+    request = supertest(app.server) as any;
 
     // Mock the agent and workspace functions
     vi.mock('../../src/sandbox/workspace.js', () => ({
@@ -91,7 +91,24 @@ describe('E2E: Webhook to Worker Flow', () => {
   });
 
   afterEach(async () => {
-    await cleanupTestJobs();
+    // Wait for all tracked jobs to complete before moving to next test
+    for (const jobId of createdJobIds) {
+      try {
+        await waitForJobCompletion(queue, jobId, 10000);
+      } catch {
+        // Job may already be completed or removed
+      }
+    }
+    // Clean up completed jobs
+    for (const jobId of createdJobIds) {
+      try {
+        const job = await queue.getJob(jobId);
+        if (job) await job.remove();
+      } catch {
+        // Job may already be removed
+      }
+    }
+    createdJobIds.clear();
   });
 
   it('should accept webhook, queue job, process it, and complete successfully', async () => {
@@ -124,15 +141,10 @@ describe('E2E: Webhook to Worker Flow', () => {
     expect(job!.data).toMatchObject(payload);
 
     // Step 3: Wait for job to be picked up by worker
-    await new Promise(resolve => setTimeout(resolve, 200));
-
-    const activeState = await job!.getState();
-    expect(activeState).toBe(JobStates.ACTIVE);
-
-    // Step 4: Wait for job completion
+    // The job may already be active or even completed depending on timing
     const result = await waitForJobCompletion(queue, jobId, 30000);
 
-    // Step 5: Verify job completed successfully
+    // Step 4: Verify job completed successfully
     expect(result.status).toBe('completed');
     expect(result.result).toMatchObject({
       success: true,
@@ -140,7 +152,7 @@ describe('E2E: Webhook to Worker Flow', () => {
       pullRequestUrl: expect.stringContaining('github.com'),
     });
 
-    // Step 6: Verify job status via API
+    // Step 5: Verify job status via API
     const statusResponse = await request
       .get(`/jobs/${jobId}`)
       .expect(200);
@@ -148,10 +160,8 @@ describe('E2E: Webhook to Worker Flow', () => {
     expect(statusResponse.body).toMatchObject({
       jobId,
       status: 'completed',
-      result: {
-        success: true,
-        pullRequestUrl: expect.stringContaining('github.com'),
-      },
+      success: true,
+      pullRequestUrl: expect.stringContaining('github.com'),
     });
   }, 60000);
 
@@ -207,24 +217,22 @@ describe('E2E: Webhook to Worker Flow', () => {
 
     createdJobIds.add(highPriorityResponse.body.jobId);
 
-    // Wait for jobs to be queued
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Verify both jobs are in queue
-    const waitingJobs = await queue.getWaiting();
-    expect(waitingJobs.length).toBeGreaterThanOrEqual(2);
-
     // The high priority job should have lower priority number (processed first)
+    // Check opts.priority regardless of job state (worker may have already picked them up)
     const highPriorityJob = await queue.getJob(highPriorityResponse.body.jobId);
     const lowPriorityJob = await queue.getJob(lowPriorityResponse.body.jobId);
 
+    expect(highPriorityJob).toBeDefined();
+    expect(lowPriorityJob).toBeDefined();
     expect(highPriorityJob!.opts.priority).toBeLessThan(lowPriorityJob!.opts.priority!);
   });
 
   it('should handle job failures gracefully', async () => {
-    // Mock agent to fail
+    // Mock agent to fail - set BEFORE sending webhook to avoid race with worker
     const { runAgentLoop } = await import('../../src/agent/loop.js');
-    vi.mocked(runAgentLoop).mockRejectedValueOnce(new Error('Agent failed'));
+    vi.mocked(runAgentLoop).mockImplementationOnce(async () => {
+      throw new Error('Agent failed');
+    });
 
     const payload = createWebhookPayload({
       task: { description: 'Task that will fail', priority: 'normal' },
@@ -238,18 +246,22 @@ describe('E2E: Webhook to Worker Flow', () => {
     const jobId = response.body.jobId;
     createdJobIds.add(jobId);
 
-    // Wait for job to fail
+    // Wait for job to complete (processor catches errors and returns a result)
     const result = await waitForJobCompletion(queue, jobId, 30000);
 
-    expect(result.status).toBe('failed');
-    expect(result.error).toContain('Agent failed');
+    // The processor catches the error and returns { success: false },
+    // so BullMQ considers the job 'completed' (not 'failed')
+    expect(result.status).toBe('completed');
+    expect(result.result.success).toBe(false);
+    expect(result.result.error).toContain('Agent failed');
 
     // Verify via API
     const statusResponse = await request
       .get(`/jobs/${jobId}`)
       .expect(200);
 
-    expect(statusResponse.body.status).toBe('failed');
+    expect(statusResponse.body.status).toBe('completed');
+    expect(statusResponse.body.success).toBe(false);
   }, 60000);
 
   it('should create job with correct metadata', async () => {

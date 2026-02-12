@@ -9,10 +9,15 @@ export default defineConfig({
     teardownTimeout: 10000,
     isolate: true,
     fileParallelism: false, // Run test files sequentially to avoid Redis conflicts
-    poolOptions: {
-      threads: {
-        singleThread: true,
-      },
+    globalSetup: ['./test/globalSetup.ts'],
+    setupFiles: ['./test/setup.ts'],
+    env: {
+      NODE_ENV: 'test',
+      ANTHROPIC_API_KEY: 'test-api-key',
+      CLAUDE_MODEL: 'claude-sonnet-4-20250514',
+      GITHUB_APP_ID: '12345',
+      GITHUB_APP_PRIVATE_KEY: 'test-private-key',
+      REDIS_URL: 'redis://localhost:6379',
     },
     coverage: {
       provider: 'v8',
