@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Queue, QueueEvents } from 'bullmq';
 import { Redis } from 'ioredis';
 import { JobData, JobResult, JobProgress } from '../../src/jobs/queue.js';

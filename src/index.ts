@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { startServer } from './api/server.js';
 import { closeQueue } from './jobs/queue.js';
 import { logger } from './utils/logger.js';

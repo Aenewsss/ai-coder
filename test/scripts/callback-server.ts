@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import fastify from 'fastify';
 
 const PORT = parseInt(process.env.PORT || '3001');

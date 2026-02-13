@@ -30,7 +30,7 @@ export default defineConfig({
         '**/*.spec.ts',
       ],
     },
-    include: ['test/e2e/**/*.test.ts'],
+    include: ['test/e2e/**/*.test.ts', 'test/unit/**/*.test.ts'],
     exclude: ['node_modules', 'dist'],
   },
 });

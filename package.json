@@ -6,8 +6,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "start:worker": "node dist/jobs/worker.js",
+    "start": "node --env-file=.env dist/index.js",
+    "start:worker": "node --env-file=.env dist/jobs/worker.js",
     "dev": "tsx watch src/index.ts",
     "dev:worker": "tsx watch src/jobs/worker.ts",
     "typecheck": "tsc --noEmit",
@@ -32,9 +32,11 @@
     "@octokit/core": "^6.1.0",
     "@octokit/rest": "^21.0.0",
     "bullmq": "^5.30.0",
+    "dotenv": "^17.3.1",
     "fastify": "^5.2.0",
     "ioredis": "^5.4.0",
     "nanoid": "^5.0.0",
+    "openai": "^6.21.0",
     "pino": "^9.5.0",
     "simple-git": "^3.27.0",
     "zod": "^3.24.0"

@@ -1,19 +1,11 @@
-import Anthropic from '@anthropic-ai/sdk';
-import type {
-  MessageParam,
-  ContentBlock,
-  ToolResultBlockParam,
-  TextBlockParam,
-  ToolUseBlock,
-} from '@anthropic-ai/sdk/resources/messages.js';
 import { env } from '../config/env.js';
 import { Workspace } from '../sandbox/workspace.js';
-import { toolDefinitions, executeTool, ToolResult } from '../tools/index.js';
+import { toolDefinitions, executeTool } from '../tools/index.js';
 import { getSystemPrompt } from './prompts/system.js';
 import { logger } from '../utils/logger.js';
 import { AgentError } from '../utils/errors.js';
-
-const anthropic = new Anthropic();
+import { createLLMProvider, Message, ContentBlock } from '../llm/index.js';
+import { selectDeepSeekModel } from './task-analyzer.js';
 
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY_MS = 10000;
@@ -47,9 +39,38 @@ export async function runAgentLoop(
   const log = logger.child({ jobId, workspaceId: workspace.id });
   const { owner, repo, defaultBranch } = workspace.config;
 
+  // Select appropriate model based on task complexity (for DeepSeek)
+  let selectedModel: string | undefined;
+
+  if (env.LLM_PROVIDER === 'deepseek') {
+    const selection = selectDeepSeekModel(taskDescription);
+    selectedModel = selection.model;
+
+    log.info(
+      {
+        model: selectedModel,
+        complexity: selection.complexity,
+        reason: selection.reason,
+        isDynamic: selection.isDynamic,
+      },
+      'DeepSeek model selected based on task complexity'
+    );
+  }
+
+  // Create LLM provider based on configuration
+  const llmProvider = createLLMProvider(selectedModel ? { model: selectedModel } : undefined);
+
+  const currentModel = env.LLM_PROVIDER === 'anthropic'
+    ? env.CLAUDE_MODEL
+    : env.LLM_PROVIDER === 'deepseek'
+      ? (selectedModel || env.DEEPSEEK_MODEL)
+      : env.GROQ_MODEL;
+
+  log.info({ provider: env.LLM_PROVIDER, model: currentModel }, 'Using LLM provider');
+
   const systemPrompt = getSystemPrompt({ owner, repo, defaultBranch });
 
-  const messages: MessageParam[] = [
+  const messages: Message[] = [
     {
       role: 'user',
       content: `Please complete the following task:\n\n${taskDescription}`,
@@ -61,40 +82,34 @@ export async function runAgentLoop(
 
   log.info({ taskDescription }, 'Starting agent loop');
 
-  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
   while (turns < maxTurns) {
-    turns++;
-
-    await delay(10000); 
+    turns++; 
     
     log.debug({ turn: turns }, 'Agent turn');
     onProgress?.(turns, maxTurns);
 
     try {
-      const response = await anthropic.messages.create({
-        model: env.CLAUDE_MODEL,
-        max_tokens: 8192,
-        system: systemPrompt,
-        tools: toolDefinitions,
-        messages,
-      });
+      const response = await llmProvider.chat(systemPrompt, messages, toolDefinitions);
 
       // Process the response
       const assistantContent: ContentBlock[] = response.content;
 
-      // Add assistant message to history
-      messages.push({
+      // Add assistant message to history (include reasoning_content for DeepSeek thinking mode)
+      const assistantMessage: Message = {
         role: 'assistant',
         content: assistantContent,
-      });
+      };
+      if (response.reasoning_content) {
+        assistantMessage.reasoning_content = response.reasoning_content;
+      }
+      messages.push(assistantMessage);
 
       // Check stop reason
-      if (response.stop_reason === 'end_turn') {
+      if (response.stopReason === 'end_turn') {
         // Model finished without tool use
         const textContent = assistantContent
-          .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-          .map((block) => block.text)
+          .filter((block) => block.type === 'text')
+          .map((block) => block.text || '')
           .join('\n');
 
         log.info({ turns }, 'Agent completed without explicit task_complete');
@@ -106,21 +121,22 @@ export async function runAgentLoop(
         };
       }
 
-      if (response.stop_reason === 'tool_use') {
+      if (response.stopReason === 'tool_use') {
         // Execute tools
         const toolUseBlocks = assistantContent.filter(
-          (block): block is ToolUseBlock => block.type === 'tool_use'
+          (block) => block.type === 'tool_use'
         );
 
-        const toolResults: ToolResultBlockParam[] = [];
+        const toolResults: ContentBlock[] = [];
 
         for (const toolUse of toolUseBlocks) {
-          log.debug({ tool: toolUse.name, input: toolUse.input }, 'Executing tool');
+          const toolName = toolUse.name || 'unknown';
+          log.debug({ tool: toolName, input: toolUse.input }, 'Executing tool');
 
           try {
             const result = await executeTool(
               workspace,
-              toolUse.name,
+              toolName,
               toolUse.input as Record<string, unknown>
             );
 
@@ -143,7 +159,7 @@ export async function runAgentLoop(
             });
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            log.warn({ tool: toolUse.name, error: errorMessage }, 'Tool execution failed');
+            log.warn({ tool: toolName, error: errorMessage }, 'Tool execution failed');
 
             toolResults.push({
               type: 'tool_result',
@@ -161,7 +177,7 @@ export async function runAgentLoop(
         });
       } else {
         // Unexpected stop reason
-        log.warn({ stopReason: response.stop_reason }, 'Unexpected stop reason');
+        log.warn({ stopReason: response.stopReason }, 'Unexpected stop reason');
         break;
       }
     } catch (error) {
@@ -175,38 +191,37 @@ export async function runAgentLoop(
           await sleep(delay);
 
           try {
-            const retryResponse = await anthropic.messages.create({
-              model: env.CLAUDE_MODEL,
-              max_tokens: 8192,
-              system: systemPrompt,
-              tools: toolDefinitions,
-              messages,
-            });
+            const retryResponse = await llmProvider.chat(systemPrompt, messages, toolDefinitions);
 
             // Re-inject the successful response by pushing it back and re-processing
             // We decrement turns so the while loop increments it back
             turns--;
-            messages.push({ role: 'assistant', content: retryResponse.content });
+            const retryMessage: Message = { role: 'assistant', content: retryResponse.content };
+            if (retryResponse.reasoning_content) {
+              retryMessage.reasoning_content = retryResponse.reasoning_content;
+            }
+            messages.push(retryMessage);
 
             // Need to handle the response inline since we broke out of the retry loop
-            if (retryResponse.stop_reason === 'end_turn') {
+            if (retryResponse.stopReason === 'end_turn') {
               const textContent = retryResponse.content
-                .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-                .map((block) => block.text)
+                .filter((block) => block.type === 'text')
+                .map((block) => block.text || '')
                 .join('\n');
               log.info({ turns: turns + 1 }, 'Agent completed after retry');
               return { success: true, summary: textContent || 'Task completed.', turns: turns + 1 };
             }
 
-            if (retryResponse.stop_reason === 'tool_use') {
+            if (retryResponse.stopReason === 'tool_use') {
               const toolUseBlocks = retryResponse.content.filter(
-                (block): block is ToolUseBlock => block.type === 'tool_use'
+                (block) => block.type === 'tool_use'
               );
-              const toolResults: ToolResultBlockParam[] = [];
+              const toolResults: ContentBlock[] = [];
               for (const toolUse of toolUseBlocks) {
-                log.debug({ tool: toolUse.name, input: toolUse.input }, 'Executing tool');
+                const toolName = toolUse.name || 'unknown';
+                log.debug({ tool: toolName, input: toolUse.input }, 'Executing tool');
                 try {
-                  const result = await executeTool(workspace, toolUse.name, toolUse.input as Record<string, unknown>);
+                  const result = await executeTool(workspace, toolName, toolUse.input as Record<string, unknown>);
                   if (typeof result === 'object' && 'complete' in result && result.complete) {
                     log.info({ summary: result.summary, prUrl: result.pullRequestUrl, turns: turns + 1 }, 'Task completed after retry');
                     return { success: true, summary: result.summary, pullRequestUrl: result.pullRequestUrl, turns: turns + 1 };
@@ -214,7 +229,7 @@ export async function runAgentLoop(
                   toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: result as string });
                 } catch (toolError) {
                   const toolErrorMsg = toolError instanceof Error ? toolError.message : String(toolError);
-                  log.warn({ tool: toolUse.name, error: toolErrorMsg }, 'Tool execution failed');
+                  log.warn({ tool: toolName, error: toolErrorMsg }, 'Tool execution failed');
                   toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: `Error: ${toolErrorMsg}`, is_error: true });
                 }
               }

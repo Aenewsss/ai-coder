@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Worker } from 'bullmq';
 import { redisConnection, JobData, JobResult } from './queue.js';
 import { processJob } from './processor.js';
