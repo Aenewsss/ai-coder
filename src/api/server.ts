@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 import { healthRoutes } from './routes/health.js';
 import { webhookRoutes } from './routes/webhook.js';
 import { jobRoutes } from './routes/jobs.js';
+import { checkpointRoutes } from './routes/checkpoint.js';
 
 export async function createServer() {
   const fastify = Fastify({
@@ -25,6 +26,7 @@ export async function createServer() {
   await fastify.register(healthRoutes);
   await fastify.register(webhookRoutes);
   await fastify.register(jobRoutes);
+  await fastify.register(checkpointRoutes);
 
   // Global error handler
   fastify.setErrorHandler((error, request, reply) => {

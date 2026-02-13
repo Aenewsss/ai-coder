@@ -6,6 +6,7 @@ import { logger } from '../utils/logger.js';
 import { AgentError } from '../utils/errors.js';
 import { createLLMProvider, Message, ContentBlock } from '../llm/index.js';
 import { selectDeepSeekModel } from './task-analyzer.js';
+import { checkpointManager } from './checkpoint.js';
 
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY_MS = 10000;
@@ -34,15 +35,58 @@ export async function runAgentLoop(
   workspace: Workspace,
   taskDescription: string,
   jobId: string,
-  onProgress?: OnProgressCallback
+  onProgress?: OnProgressCallback,
+  resumeFromCheckpoint: boolean = true
 ): Promise<AgentResult> {
   const log = logger.child({ jobId, workspaceId: workspace.id });
   const { owner, repo, defaultBranch } = workspace.config;
 
-  // Select appropriate model based on task complexity (for DeepSeek)
+  // Try to load checkpoint first
+  let messages: Message[];
+  let turns: number;
   let selectedModel: string | undefined;
+  const maxTurns = env.MAX_AGENT_TURNS;
 
-  if (env.LLM_PROVIDER === 'deepseek') {
+  if (resumeFromCheckpoint) {
+    const checkpoint = await checkpointManager.loadCheckpoint(jobId);
+
+    if (checkpoint) {
+      log.info(
+        {
+          resumedTurns: checkpoint.turns,
+          messageCount: checkpoint.messages.length,
+          lastUpdated: checkpoint.lastUpdated,
+        },
+        'Resuming from checkpoint'
+      );
+
+      messages = checkpoint.messages;
+      turns = checkpoint.turns;
+      selectedModel = checkpoint.selectedModel;
+    } else {
+      log.info('No checkpoint found, starting fresh');
+      messages = [
+        {
+          role: 'user',
+          content: `Please complete the following task:\n\n${taskDescription}`,
+        },
+      ];
+      turns = 0;
+    }
+  } else {
+    log.info('Starting fresh (checkpoint resume disabled)');
+    messages = [
+      {
+        role: 'user',
+        content: `Please complete the following task:\n\n${taskDescription}`,
+      },
+    ];
+    turns = 0;
+  }
+
+  // Select appropriate model based on task complexity (for DeepSeek)
+  // Only select model if not resuming or if no model was saved
+  if (!selectedModel && env.LLM_PROVIDER === 'deepseek') {
     const selection = selectDeepSeekModel(taskDescription);
     selectedModel = selection.model;
 
@@ -70,21 +114,25 @@ export async function runAgentLoop(
 
   const systemPrompt = getSystemPrompt({ owner, repo, defaultBranch });
 
-  const messages: Message[] = [
-    {
-      role: 'user',
-      content: `Please complete the following task:\n\n${taskDescription}`,
-    },
-  ];
+  log.info({ taskDescription, startingTurn: turns }, 'Starting agent loop');
 
-  let turns = 0;
-  const maxTurns = env.MAX_AGENT_TURNS;
-
-  log.info({ taskDescription }, 'Starting agent loop');
+  // Helper function to save checkpoint
+  const saveCheckpoint = async () => {
+    await checkpointManager.saveCheckpoint({
+      jobId,
+      workspaceId: workspace.id,
+      taskDescription,
+      messages,
+      turns,
+      maxTurns,
+      selectedModel,
+      workspaceConfig: { owner, repo, defaultBranch },
+    });
+  };
 
   while (turns < maxTurns) {
-    turns++; 
-    
+    turns++;
+
     log.debug({ turn: turns }, 'Agent turn');
     onProgress?.(turns, maxTurns);
 
@@ -104,6 +152,9 @@ export async function runAgentLoop(
       }
       messages.push(assistantMessage);
 
+      // Save checkpoint after each response
+      await saveCheckpoint();
+
       // Check stop reason
       if (response.stopReason === 'end_turn') {
         // Model finished without tool use
@@ -113,6 +164,9 @@ export async function runAgentLoop(
           .join('\n');
 
         log.info({ turns }, 'Agent completed without explicit task_complete');
+
+        // Clean up checkpoint on successful completion
+        await checkpointManager.deleteCheckpoint(jobId);
 
         return {
           success: true,
@@ -143,6 +197,9 @@ export async function runAgentLoop(
             // Check if task is complete
             if (typeof result === 'object' && 'complete' in result && result.complete) {
               log.info({ summary: result.summary, prUrl: result.pullRequestUrl, turns }, 'Task completed');
+
+              // Clean up checkpoint on successful completion
+              await checkpointManager.deleteCheckpoint(jobId);
 
               return {
                 success: true,
@@ -175,6 +232,9 @@ export async function runAgentLoop(
           role: 'user',
           content: toolResults,
         });
+
+        // Save checkpoint after tool execution
+        await saveCheckpoint();
       } else {
         // Unexpected stop reason
         log.warn({ stopReason: response.stopReason }, 'Unexpected stop reason');
@@ -209,6 +269,10 @@ export async function runAgentLoop(
                 .map((block) => block.text || '')
                 .join('\n');
               log.info({ turns: turns + 1 }, 'Agent completed after retry');
+
+              // Clean up checkpoint on successful completion
+              await checkpointManager.deleteCheckpoint(jobId);
+
               return { success: true, summary: textContent || 'Task completed.', turns: turns + 1 };
             }
 
@@ -224,6 +288,10 @@ export async function runAgentLoop(
                   const result = await executeTool(workspace, toolName, toolUse.input as Record<string, unknown>);
                   if (typeof result === 'object' && 'complete' in result && result.complete) {
                     log.info({ summary: result.summary, prUrl: result.pullRequestUrl, turns: turns + 1 }, 'Task completed after retry');
+
+                    // Clean up checkpoint on successful completion
+                    await checkpointManager.deleteCheckpoint(jobId);
+
                     return { success: true, summary: result.summary, pullRequestUrl: result.pullRequestUrl, turns: turns + 1 };
                   }
                   toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: result as string });

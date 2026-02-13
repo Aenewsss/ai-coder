@@ -5,16 +5,44 @@ import { createWorkspace, cleanupJobWorkspaces } from '../sandbox/workspace.js';
 import { runAgentLoop } from '../agent/loop.js';
 import { createJobLogger } from '../utils/logger.js';
 import { env } from '../config/env.js';
+import { checkpointManager } from '../agent/checkpoint.js';
 
 export async function processJob(job: Job<JobData, JobResult>): Promise<JobResult> {
   const log = createJobLogger(job.id!);
-  const { task, organization, repository, callback } = job.data;
+  const { task, organization, repository, callback, _resume } = job.data as JobData & {
+    _resume?: { fromJobId: string; resumedAt: string };
+  };
+
+  const isResume = !!_resume;
+
+  if (isResume) {
+    log.info(
+      {
+        newJobId: job.id,
+        originalJobId: _resume!.fromJobId,
+        resumedAt: _resume!.resumedAt,
+      },
+      'Resuming job from checkpoint'
+    );
+
+    // Copy checkpoint to new job ID so it continues saving under the new job
+    const checkpoint = await checkpointManager.loadCheckpoint(_resume!.fromJobId);
+    if (checkpoint) {
+      await checkpointManager.saveCheckpoint({
+        ...checkpoint,
+        jobId: job.id!,
+      });
+      // Delete old checkpoint
+      await checkpointManager.deleteCheckpoint(_resume!.fromJobId);
+    }
+  }
 
   log.info(
     {
       org: organization.name,
       repo: `${repository.owner}/${repository.name}`,
       task: task.description.slice(0, 100),
+      isResume,
     },
     'Processing job'
   );

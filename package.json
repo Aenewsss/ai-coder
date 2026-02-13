@@ -20,7 +20,10 @@
     "test:monitor": "tsx test/scripts/monitor-job.ts",
     "test:list": "tsx test/scripts/list-jobs.ts",
     "test:cleanup": "tsx test/scripts/cleanup-jobs.ts",
-    "test:callback": "tsx test/scripts/callback-server.ts"
+    "test:callback": "tsx test/scripts/callback-server.ts",
+    "test:checkpoints": "tsx test/scripts/list-checkpoints.ts",
+    "test:resume": "tsx test/scripts/resume-checkpoint.ts",
+    "test:inspect": "tsx test/scripts/inspect-checkpoint.ts"
   },
   "engines": {
     "node": ">=20.0.0"
